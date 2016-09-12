@@ -11,12 +11,14 @@ use Symfony\Component\Finder\Finder;
 
 
 /////////////////////////////////////////////
+$realPath     = realpath(dirname(__FILE__));
+$moveFolder   = $argv[1];
 $inputDirs    = [
-    '/volume1/Family/preview'
+    $realPath.'/'.$moveFolder.'/preview'
 ];
-$outputDir    = '/volume1/photo';
-$duplicateDir = '/volume1/Family/duplicates';
-$brokenDir = '/volume1/Family/broken';
+$outputDir    = $realPath.'/'.$moveFolder;
+$duplicateDir = $realPath.'/'.$moveFolder.'/duplicates';
+$brokenDir    = $realPath.'/'.$moveFolder.'/broken';
 $excludeDirs  = ['@eaDir'];
 /////////////////////////////////////////////
 
@@ -30,7 +32,6 @@ $excludeDirs  = ['@eaDir'];
 //$excludeDirs  = [];
 /////////////////////////////////////////////
 
-
 $finder = new Finder();
 $finder->files()->in($inputDirs);
 foreach ($excludeDirs as $excludeDir) {
@@ -43,22 +44,27 @@ $logger = new Logger('exiftool');
 $logger->pushHandler(new \Monolog\Handler\NullHandler(Logger::ERROR));
 
 foreach ($finder as $file) {
-
-    $reader = Reader::create($logger);
+    try {
+        $reader = Reader::create($logger);
+    } catch (Exception $e) {
+        $fs->copy($file->getPathName(), $brokenDir.'/'.$file->getFileName());
+        $fs->remove($file->getPathName());
+        echo 'Broken: ' . $file->getFilename() . ' => ' . pathinfo($brokenFilePath, PATHINFO_BASENAME) . PHP_EOL;
+        continue;
+    }
 
     $metaDatas = $reader->files($file->getPathName())->first();
 
-
-    $pathinfo        = pathinfo($metaDatas->getFile());
-    $filename        = $pathinfo['basename'];
+    $pathinfo = pathinfo($metaDatas->getFile());
+    $filename = $pathinfo['basename'];
     $filenamePartial = $pathinfo['filename'];
-    $ext             = $pathinfo['extension'];
+    $ext = $pathinfo['extension'];
 
 
     $createdDate = [];
     foreach ($metaDatas as $metadata) {
         $value = $metadata->getValue()->asString();
-        $tag   = (string)$metadata->getTag();
+        $tag = (string)$metadata->getTag();
 
         if (in_array($tag, [
             'Composite:SubSecCreateDate',
@@ -69,10 +75,10 @@ foreach ($finder as $file) {
         ])
         ) {
             if (is_object(\DateTime::createFromFormat('Y:m:d H:i:s.u', $value))) {
-                $date                = \DateTime::createFromFormat('Y:m:d H:i:s.u', $value);
+                $date = \DateTime::createFromFormat('Y:m:d H:i:s.u', $value);
                 $createdDate['high'] = $date->format('Y-m-d His') . substr($date->format('u'), 0, 3);
             } else if (is_object(\DateTime::createFromFormat('Y:m:d H:i:s', $value))) {
-                $date                  = \DateTime::createFromFormat('Y:m:d H:i:s', $value);
+                $date = \DateTime::createFromFormat('Y:m:d H:i:s', $value);
                 $createdDate['normal'] = $date->format('Y-m-d His') . '000';
             }
         }
@@ -87,6 +93,7 @@ foreach ($finder as $file) {
         }
     }
 
+
     $createdDateValue = '';
     if (isset($createdDate['high'])) {
         $createdDateValue = $createdDate['high'];
@@ -96,9 +103,10 @@ foreach ($finder as $file) {
         $createdDateValue = $createdDate['low'];
     }
 
+
     if ($createdDateValue) {
-        $date           = \DateTime::createFromFormat('Y-m-d His', substr($createdDateValue, 0, -3));
-        if(!$date instanceof \DateTime) {
+        $date = \DateTime::createFromFormat('Y-m-d His', substr($createdDateValue, 0, -3));
+        if (!$date instanceof \DateTime) {
             $brokenFilePath = $brokenDir . '/' . $filename . '-' . substr(md5(uniqid(rand(), true)), 0, 6) . '.' . $ext;
             $fs->copy($metaDatas->getFile(), $brokenFilePath);
             $fs->remove($metaDatas->getFile());
@@ -112,7 +120,7 @@ foreach ($finder as $file) {
                 echo 'Duplicate: ' . $filename . ' => ' . pathinfo($duplicateFilePath, PATHINFO_BASENAME) . PHP_EOL;
             } else {
                 $fs->copy($metaDatas->getFile(), $outputFilePath);
-                $fs->remove($metaDatas->getFile());
+                $fs->remove(strtolower($metaDatas->getFile()));
                 echo 'Rename: ' . $filename . ' => ' . pathinfo($outputFilePath, PATHINFO_BASENAME) . PHP_EOL;
             }
         }
@@ -140,4 +148,6 @@ foreach ($finder as $file) {
         }
         exit;
     }
+
+
 }
